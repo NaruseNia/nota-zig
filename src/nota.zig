@@ -1,6 +1,7 @@
 const std = @import("std");
-const ast = @import("regex/ast.zig");
+const regex = @import("regex/mod.zig");
 
 test {
+    _ = @import("regex/parser.zig");
     std.testing.refAllDecls(@This());
 }
