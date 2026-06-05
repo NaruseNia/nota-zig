@@ -33,6 +33,24 @@ const Cursor = struct {
         return null;
     }
 
+    /// Peeks characters while the `predicate` returns `true`, without advancing the cursor.
+    fn peekWhile(self: *const Self, predicate: fn (u8) bool) []const u8 {
+        const start = self.curr;
+        while (self.isInBounds() and predicate(self.currChar())) {
+            self.curr += 1;
+        }
+        return self.input[start..self.curr];
+    }
+
+    /// Peeks characters until the `terminator` is found, without advancing the cursor.
+    fn peekUntil(self: *const Self, terminator: u8) []const u8 {
+        const start = self.curr;
+        while (self.isInBounds() and self.currChar() != terminator) {
+            self.curr += 1;
+        }
+        return self.input[start..self.curr];
+    }
+
     /// Takes the next `amount` characters and advances the cursor.
     fn take(self: *Self, amount: usize) []const u8 {
         if (self.curr + amount > self.input.len) {
@@ -52,6 +70,24 @@ const Cursor = struct {
         const c = self.input[self.curr];
         self.curr += 1;
         return c;
+    }
+
+    /// Takes characters while the `predicate` returns `true` and advances the cursor.
+    fn takeWhile(self: *Self, predicate: fn (u8) bool) []const u8 {
+        const start = self.curr;
+        while (self.isInBounds() and predicate(self.currChar())) {
+            self.curr += 1;
+        }
+        return self.input[start..self.curr];
+    }
+
+    /// Takes characters until the `terminator` is found and advances the cursor.
+    fn takeUntil(self: *Self, terminator: u8) []const u8 {
+        const start = self.curr;
+        while (self.isInBounds() and self.currChar() != terminator) {
+            self.curr += 1;
+        }
+        return self.input[start..self.curr];
     }
 
     /// Increments the cursor by 1 without returning the current character.
@@ -86,6 +122,32 @@ pub fn parse(comptime pattern: []const u8) ast.Node {
             '\\' => nodes = nodes ++ &[_]ast.Node{parseEscaped(&state)},
             // Char class
             '[' => nodes = nodes ++ &[_]ast.Node{parseCharClass(&state)},
+            // Repeat operators
+            '*' => {
+                // If * becomes the first node, it's an error because there is nothing to repeat
+                if (nodes.len == 0) @compileError("Nothing to repeat before '*'");
+
+                // Replace previous node with a repeat node
+                nodes = nodes[0 .. nodes.len - 1] ++ &[_]ast.Node{
+                    ast.Node.repeatNode(&nodes[nodes.len - 1], 0, null),
+                };
+            },
+            '+' => {
+                // If + becomes the first node, it's an error because there is nothing to repeat
+                if (nodes.len == 0) @compileError("Nothing to repeat before '+'");
+
+                nodes = nodes[0 .. nodes.len - 1] ++ &[_]ast.Node{
+                    ast.Node.repeatNode(&nodes[nodes.len - 1], 1, null),
+                };
+            },
+            '?' => {
+                // If ? becomes the first node, it's an error because there is nothing to repeat
+                if (nodes.len == 0) @compileError("Nothing to repeat before '?'");
+
+                nodes = nodes[0 .. nodes.len - 1] ++ &[_]ast.Node{
+                    ast.Node.repeatNode(&nodes[nodes.len - 1], 0, 1),
+                };
+            },
             // Literals
             else => {
                 nodes = nodes ++ &[_]ast.Node{ast.Node.literalNode(c)};
@@ -153,7 +215,7 @@ fn parseCharClass(comptime cursor: *Cursor) ast.Node {
             break;
         }
 
-        // Handle ranges (e.g. a-z) and escape sequences
+        // Handle ranges (e.g. a-z)
         const next = cursor.takeNext();
         if (cursor.isOutOfBounds()) {
             @compileError("Unexpected end of pattern in character class");
@@ -216,4 +278,25 @@ test "parse negated char class" {
     try std.testing.expect(node == .char_class);
     try std.testing.expect(node.char_class.negated);
     try std.testing.expectEqual(1, node.char_class.ranges.len);
+}
+
+test "parse * repeat operator" {
+    const node = comptime parse("a*");
+    try std.testing.expect(node == .repeat);
+    try std.testing.expectEqual(0, node.repeat.min);
+    try std.testing.expect(node.repeat.max == null);
+}
+
+test "parse + repeat operator" {
+    const node = comptime parse("a+");
+    try std.testing.expect(node == .repeat);
+    try std.testing.expectEqual(1, node.repeat.min);
+    try std.testing.expect(node.repeat.max == null);
+}
+
+test "parse ? repeat operator" {
+    const node = comptime parse("a?");
+    try std.testing.expect(node == .repeat);
+    try std.testing.expectEqual(0, node.repeat.min);
+    try std.testing.expectEqual(1, node.repeat.max.?);
 }
