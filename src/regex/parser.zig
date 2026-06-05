@@ -120,8 +120,18 @@ pub fn parse(comptime pattern: []const u8) ast.Node {
         switch (c) {
             // Escape sequences
             '\\' => nodes = nodes ++ &[_]ast.Node{parseEscaped(&state)},
-            // Char class
+            // Range
             '[' => nodes = nodes ++ &[_]ast.Node{parseCharClass(&state)},
+            // Repetition
+            '{' => {
+                // If { becomes the first node, it's an error because there is nothing to repeat
+                if (nodes.len == 0) @compileError("Nothing to repeat before '{'");
+
+                const rep = parseRepetition(&state);
+                nodes = nodes[0 .. nodes.len - 1] ++ &[_]ast.Node{
+                    ast.Node.repeatNode(&nodes[nodes.len - 1], rep.min, rep.max),
+                };
+            },
             // Repeat operators
             '*' => {
                 // If * becomes the first node, it's an error because there is nothing to repeat
@@ -160,6 +170,19 @@ pub fn parse(comptime pattern: []const u8) ast.Node {
         1 => nodes[0],
         else => ast.Node.concatNodes(nodes),
     };
+}
+
+fn parseDigits(comptime cursor: *Cursor) usize {
+    const digits = cursor.takeWhile(std.ascii.isDigit);
+    if (digits.len == 0) {
+        @compileError("Expected digits for repetition");
+    }
+
+    var result: usize = 0;
+    for (digits) |d| {
+        result = result * 10 + (d - '0');
+    }
+    return result;
 }
 
 /// Parses an escape sequence (e.g. \n, \t, \w) and returns an `ast.Node` representing it.
@@ -237,6 +260,54 @@ fn parseCharClass(comptime cursor: *Cursor) ast.Node {
     return ast.Node.charClassNode(ranges, negated);
 }
 
+const Repetition = struct {
+    min: usize,
+    max: ?usize,
+};
+
+fn parseRepetition(comptime cursor: *Cursor) Repetition {
+    if (cursor.isOutOfBounds()) {
+        @compileError("Unexpected end of pattern in character class");
+    }
+
+    // Handle repetition (e.g. {3}, {2,5})
+    const min = parseDigits(cursor);
+    if (cursor.isOutOfBounds()) {
+        @compileError("Unexpected end of pattern in character class");
+    }
+
+    if (cursor.currChar() == ',') {
+        cursor.skip(); // Skip ','
+        // {2,} pattern means min 2, max unlimited
+        if (cursor.isOutOfBounds() or cursor.currChar() == '}') {
+            cursor.skip(); // Skip '}'
+            return .{
+                .min = min,
+                .max = null,
+            };
+        }
+
+        const max = parseDigits(cursor);
+
+        // Expected: closing '}' after max digits
+        if (cursor.isOutOfBounds() or cursor.currChar() != '}') {
+            @compileError("Expected '}' after max digits in repetition");
+        }
+
+        cursor.skip(); // Skip '}'
+        return .{ .min = min, .max = max };
+    } else {
+        // Expected: closing '}' after min digits
+        if (cursor.isOutOfBounds() or cursor.currChar() != '}') {
+            @compileError("Expected '}' after digits in repetition");
+        }
+
+        cursor.skip(); // Skip '}'
+        return .{ .min = min, .max = min };
+    }
+    @compileError("Expected '}' to close repetition");
+}
+
 test "parse single literal" {
     const node = comptime parse("a");
     try std.testing.expect(node == .literal);
@@ -299,4 +370,25 @@ test "parse ? repeat operator" {
     try std.testing.expect(node == .repeat);
     try std.testing.expectEqual(0, node.repeat.min);
     try std.testing.expectEqual(1, node.repeat.max.?);
+}
+
+test "parse {3} repeat operator" {
+    const node = comptime parse("a{3}");
+    try std.testing.expect(node == .repeat);
+    try std.testing.expectEqual(3, node.repeat.min);
+    try std.testing.expectEqual(3, node.repeat.max.?);
+}
+
+test "parse {2,5} repeat operator" {
+    const node = comptime parse("a{2,5}");
+    try std.testing.expect(node == .repeat);
+    try std.testing.expectEqual(2, node.repeat.min);
+    try std.testing.expectEqual(5, node.repeat.max.?);
+}
+
+test "parse {2,} repeat operator" {
+    const node = comptime parse("a{2,}");
+    try std.testing.expect(node == .repeat);
+    try std.testing.expectEqual(2, node.repeat.min);
+    try std.testing.expect(node.repeat.max == null);
 }
