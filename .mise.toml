@@ -1,0 +1,30 @@
+[tools]
+zig = "0.16.0"
+
+[tasks.build]
+run = "zig build"
+description = "Build the library"
+
+[tasks.test]
+run = "zig build test"
+description = "Run unit tests"
+
+[tasks.bench]
+run = "zig build bench"
+description = "Run benchmarks"
+
+[tasks.fuzz]
+run = "zig build fuzz"
+description = "Run fuzz tests"
+
+[tasks.lint]
+run = "zig build test --summary all"
+description = "Run static analysis"
+
+[tasks.fmt]
+run = "zig fmt src/ bench/"
+description = "Format source code"
+
+[tasks.clean]
+run = "rm -rf zig-out .zig-cache"
+description = "Clean build artifacts"
