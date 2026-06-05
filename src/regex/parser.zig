@@ -17,46 +17,13 @@ pub fn parse(comptime pattern: []const u8) ast.Node {
         const c = state.input[state.curr];
         state.curr += 1;
 
-        // Escape sequences
-        if (c == '\\') {
-            if (state.curr >= state.input.len) {
-                @compileError("Unexpected end of pattern after '\\'");
-            }
-            const next = state.input[state.curr];
-            state.curr += 1;
-            switch (next) {
-                't' => nodes = nodes ++ &[_]ast.Node{.{ .literal = '\t' }},
-                'n' => nodes = nodes ++ &[_]ast.Node{.{ .literal = '\n' }},
-                'r' => nodes = nodes ++ &[_]ast.Node{.{ .literal = '\r' }},
-                '\\' => nodes = nodes ++ &[_]ast.Node{.{ .literal = '\\' }},
-                'w' => nodes = nodes ++ &[_]ast.Node{.{ .char_class = ast.CharClass{
-                    .ranges = &[_]ast.Range{
-                        .{ .start = 'a', .end = 'z' },
-                        .{ .start = 'A', .end = 'Z' },
-                        .{ .start = '0', .end = '9' },
-                        .{ .start = '_', .end = '_' },
-                    },
-                    .negated = false,
-                } }},
-                'd' => nodes = nodes ++ &[_]ast.Node{.{ .char_class = ast.CharClass{
-                    .ranges = &[_]ast.Range{
-                        .{ .start = '0', .end = '9' },
-                    },
-                    .negated = false,
-                } }},
-                's' => nodes = nodes ++ &[_]ast.Node{.{ .char_class = ast.CharClass{
-                    .ranges = &[_]ast.Range{
-                        .{ .start = ' ', .end = ' ' },
-                        .{ .start = '\t', .end = '\t' },
-                        .{ .start = '\n', .end = '\n' },
-                        .{ .start = '\r', .end = '\r' },
-                    },
-                    .negated = false,
-                } }},
-                else => @compileError("Unsupported escape sequence"),
-            }
-        } else {
-            nodes = nodes ++ &[_]ast.Node{.{ .literal = c }};
+        switch (c) {
+            // Escape sequences
+            '\\' => nodes = nodes ++ &[_]ast.Node{parseEscaped(&state)},
+            // Literals
+            else => {
+                nodes = nodes ++ &[_]ast.Node{.{ .literal = c }};
+            },
         }
     }
 
@@ -65,6 +32,45 @@ pub fn parse(comptime pattern: []const u8) ast.Node {
         1 => nodes[0],
         else => ast.Node{ .concat = nodes },
     };
+}
+
+fn parseEscaped(comptime state: *State) ast.Node {
+    if (state.curr >= state.input.len) {
+        @compileError("Unexpected end of pattern after '\\'");
+    }
+    const next = state.input[state.curr];
+    state.curr += 1;
+    switch (next) {
+        't' => return ast.Node{ .literal = '\t' },
+        'n' => return ast.Node{ .literal = '\n' },
+        'r' => return ast.Node{ .literal = '\r' },
+        '\\' => return ast.Node{ .literal = '\\' },
+        'w' => return ast.Node{ .char_class = ast.CharClass{
+            .ranges = &[_]ast.Range{
+                .{ .start = 'a', .end = 'z' },
+                .{ .start = 'A', .end = 'Z' },
+                .{ .start = '0', .end = '9' },
+                .{ .start = '_', .end = '_' },
+            },
+            .negated = false,
+        } },
+        'd' => return ast.Node{ .char_class = ast.CharClass{
+            .ranges = &[_]ast.Range{
+                .{ .start = '0', .end = '9' },
+            },
+            .negated = false,
+        } },
+        's' => return ast.Node{ .char_class = ast.CharClass{
+            .ranges = &[_]ast.Range{
+                .{ .start = ' ', .end = ' ' },
+                .{ .start = '\t', .end = '\t' },
+                .{ .start = '\n', .end = '\n' },
+                .{ .start = '\r', .end = '\r' },
+            },
+            .negated = false,
+        } },
+        else => @compileError("Unsupported escape sequence"),
+    }
 }
 
 test "parse single literal" {
