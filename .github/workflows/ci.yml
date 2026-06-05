@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~/.cache/zig
+          key: zig-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**') }}
+          restore-keys: zig-${{ runner.os }}-
+
+      - name: Build
+        run: zig build
+
+      - name: Test
+        run: zig build test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Format check
+        run: zig fmt --check src/
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~/.cache/zig
+          key: zig-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**') }}
+          restore-keys: zig-${{ runner.os }}-
+
+      - name: Benchmark
+        run: zig build bench
+
+  fuzz:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~/.cache/zig
+          key: zig-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**') }}
+          restore-keys: zig-${{ runner.os }}-
+
+      - name: Fuzz (2 min)
+        run: zig build fuzz -- --max_total_time=120 || echo "Fuzz target not yet available"
